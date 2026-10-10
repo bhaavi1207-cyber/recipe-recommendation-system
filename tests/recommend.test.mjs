@@ -1,0 +1,15 @@
+import test from 'node:test'; import assert from 'node:assert/strict';
+import {recipes} from '../src/recipes.mjs'; import {normalize,parseIngredients,recommend,readFavorites,writeFavorites} from '../src/recommend.mjs';
+test('normalizes aliases and duplicate inputs',()=>assert.deepEqual(parseIngredients(' Chana, chickpeas, TOMATOES\n tomato '),['chickpea','tomato']));
+test('ranks complete ingredient coverage first',()=>{const r=recommend(recipes,{pantry:['pasta','tomato','garlic','olive oil']}); assert.equal(r[0].id,'tomato-pasta');assert.equal(r[0].score,100);assert.equal(r[0].missing.length,0);});
+test('explains partial matches',()=>{const r=recommend(recipes,{pantry:['cucumber']}).find(r=>r.id==='chickpea-salad'); assert.deepEqual(r.matched,['cucumber']);assert.equal(r.score,20);assert.equal(r.missing.length,4);});
+test('excludes named ingredients',()=>assert(recommend(recipes,{excluded:['peanut butter','soy milk']}).every(r=>!r.ingredients.includes('peanut butter')&&!r.ingredients.includes('soy milk'))));
+test('vegan and time filters',()=>assert(recommend(recipes,{diet:'vegan',maxMinutes:10}).every(r=>r.diet==='vegan'&&r.minutes<=10)));
+test('unknown pantry has no matches',()=>assert.deepEqual(recommend(recipes,{pantry:['dragonfruit']}),[]));
+test('empty pantry browses all recipes',()=>assert.equal(recommend(recipes).length,12));
+test('saved filter',()=>assert.deepEqual(recommend(recipes,{savedOnly:true,saved:['bean-wrap']}).map(r=>r.id),['bean-wrap']));
+test('favorites survive storage read and write',()=>{let value=null;const store={getItem:()=>value,setItem:(_,v)=>{value=v;}};assert(writeFavorites(store,['bean-wrap']));assert.deepEqual(readFavorites(store),['bean-wrap']);});
+test('corrupt and unavailable storage are safe',()=>{assert.deepEqual(readFavorites({getItem:()=>'{bad'}),[]); assert.equal(writeFavorites({setItem:()=>{throw Error();}},[]),false);});
+test('dataset integrity',()=>{assert.equal(new Set(recipes.map(r=>r.id)).size,recipes.length);for(const r of recipes){assert(r.minutes>0);assert.equal(r.ingredients.length,r.amounts.length);assert(r.steps.length>0);assert(r.ingredients.every(i=>normalize(i)===i));}});
+test('vegetarian includes vegan recipes',()=>assert.equal(recommend(recipes,{diet:'vegetarian'}).length,12));
+test('empty pantry orders by estimated time',()=>{const result=recommend(recipes);assert(result.every((r,i)=>i===0||r.minutes>=result[i-1].minutes));});
